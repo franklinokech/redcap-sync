@@ -1,0 +1,171 @@
+# =========================
+# Python
+# =========================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Package / build directories
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+*.pyc
+
+# Installer / logs / caches
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+celerybeat-schedule
+celerybeat.pid
+
+# Database files
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Django / Flask / other frameworks
+*.log
+local_settings.py
+instance/
+.webassets-cache
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Renviron / environment config
+.env
+.Renviron
+.Renviron.site
+
+# =========================
+# R
+# =========================
+
+# History / session data
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+
+# Project / build artifacts
+.Rproj.user/
+*_cache/
+cache/
+vignettes/*.html
+vignettes/*.pdf
+*_files/
+
+# OAuth tokens
+.httr-oauth
+
+# =========================
+# Node / Vue / frontend
+# =========================
+
+# Dependency directories
+node_modules/
+jspm_packages/
+.pnpm/
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.pnp.*
+
+# Build output
+dist/
+build/
+.next/
+.nuxt/
+.vuepress/dist/
+.temp/
+.cache/
+.parcel-cache/
+out/
+.svelte-kit/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+.env
+
+# TypeScript / tooling caches
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.rts2_cache_*
+
+# =========================
+# IDE / Editor
+# =========================
+
+# VSCode
+.vscode/
+.vscode-test/
+
+# JetBrains / PyCharm
+.idea/
+*.iml
+
+# RStudio
+.Rproj.user/
+
+# Other temp / system files
+.DS_Store
+Thumbs.db
+*~
+.fuse_hidden*
+.Trash-*
+.nfs*
+
+# =========================
+# Misc / Data
+# =========================
+*.csv
+*.dat
+*.sqlite3
+*.db-shm
+*.db-wal
+*.log
+*.bak

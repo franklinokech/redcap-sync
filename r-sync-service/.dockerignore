@@ -1,0 +1,13 @@
+# R packages installed locally
+renv/library/
+
+# Logs
+logs/
+*.log
+
+# R history/session files
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata

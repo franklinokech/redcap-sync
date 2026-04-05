@@ -1,0 +1,199 @@
+/* main.css — REDCap Sync design system */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Palette — deep teal + warm slate */
+  --c-bg:          #0f1117;
+  --c-bg-2:        #161b25;
+  --c-bg-3:        #1e2535;
+  --c-border:      #2a3347;
+  --c-border-2:    #374057;
+
+  --c-teal:        #2dd4bf;
+  --c-teal-dim:    #1a9e8e;
+  --c-teal-glow:   rgba(45, 212, 191, 0.15);
+
+  --c-text:        #e2e8f0;
+  --c-text-2:      #94a3b8;
+  --c-text-3:      #64748b;
+
+  --c-success:     #34d399;
+  --c-success-bg:  rgba(52, 211, 153, 0.1);
+  --c-danger:      #f87171;
+  --c-danger-bg:   rgba(248, 113, 113, 0.1);
+  --c-warning:     #fbbf24;
+  --c-warning-bg:  rgba(251, 191, 36, 0.1);
+  --c-info:        #60a5fa;
+  --c-info-bg:     rgba(96, 165, 250, 0.1);
+  --c-pending:     #a78bfa;
+  --c-pending-bg:  rgba(167, 139, 250, 0.1);
+
+  /* Typography */
+  --font:      'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+
+  /* Spacing */
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+
+  /* Shadows */
+  --shadow:    0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,0.5);
+}
+
+html, body {
+  height: 100%;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { height: 100%; }
+
+a { color: var(--c-teal); text-decoration: none; }
+a:hover { color: var(--c-text); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--c-bg-2); }
+::-webkit-scrollbar-thumb { background: var(--c-border-2); border-radius: 3px; }
+
+/* Utility */
+.text-muted  { color: var(--c-text-2); }
+.text-dim    { color: var(--c-text-3); }
+.text-teal   { color: var(--c-teal); }
+.text-success { color: var(--c-success); }
+.text-danger  { color: var(--c-danger); }
+.text-warning { color: var(--c-warning); }
+.font-mono   { font-family: var(--font-mono); }
+
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Status badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 500; letter-spacing: 0.03em;
+}
+.badge-success  { background: var(--c-success-bg);  color: var(--c-success); }
+.badge-failed   { background: var(--c-danger-bg);   color: var(--c-danger); }
+.badge-running  { background: var(--c-info-bg);     color: var(--c-info); }
+.badge-pending  { background: var(--c-pending-bg);  color: var(--c-pending); }
+.badge-cancelled{ background: var(--c-bg-3);        color: var(--c-text-3); }
+.badge-warning  { background: var(--c-warning-bg);  color: var(--c-warning); }
+
+/* Pulse animation for running jobs */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+.pulse { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+/* Fade-in */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.25s ease both; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: var(--r-md);
+  font-family: var(--font); font-size: 13px; font-weight: 500;
+  cursor: pointer; border: none; transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--c-teal); color: #0f1117;
+}
+.btn-primary:hover:not(:disabled) { background: #38ede0; }
+
+.btn-secondary {
+  background: var(--c-bg-3); color: var(--c-text);
+  border: 1px solid var(--c-border);
+}
+.btn-secondary:hover:not(:disabled) { border-color: var(--c-border-2); background: var(--c-border); }
+
+.btn-danger {
+  background: var(--c-danger-bg); color: var(--c-danger);
+  border: 1px solid rgba(248,113,113,0.2);
+}
+.btn-danger:hover:not(:disabled) { background: rgba(248,113,113,0.2); }
+
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+.btn-lg { padding: 11px 22px; font-size: 14px; }
+
+/* Form elements */
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+
+.form-label {
+  font-size: 12px; font-weight: 500;
+  color: var(--c-text-2); letter-spacing: 0.04em; text-transform: uppercase;
+}
+
+.form-input, .form-select {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--c-bg-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  color: var(--c-text);
+  font-family: var(--font); font-size: 13px;
+  transition: border-color 0.15s;
+  outline: none;
+}
+.form-input:focus, .form-select:focus {
+  border-color: var(--c-teal);
+  box-shadow: 0 0 0 3px var(--c-teal-glow);
+}
+.form-input::placeholder { color: var(--c-text-3); }
+.form-select option { background: var(--c-bg-2); }
+
+.form-hint { font-size: 11px; color: var(--c-text-3); }
+.form-error { font-size: 11px; color: var(--c-danger); }
+
+/* Card */
+.card {
+  background: var(--c-bg-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  padding: 20px;
+}
+
+/* Table */
+.table { width: 100%; border-collapse: collapse; }
+.table th {
+  padding: 10px 14px; text-align: left;
+  font-size: 11px; font-weight: 500; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--c-text-3);
+  border-bottom: 1px solid var(--c-border);
+}
+.table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 13px; color: var(--c-text-2);
+}
+.table tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: var(--c-bg-3); color: var(--c-text); }
+.table tbody tr { cursor: pointer; transition: background 0.1s; }
+
+/* Divider */
+.divider { border: none; border-top: 1px solid var(--c-border); margin: 16px 0; }
+
+/* Empty state */
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 48px 24px; text-align: center; gap: 8px;
+}
+.empty-state-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.4; }
+.empty-state-title { font-size: 15px; font-weight: 500; color: var(--c-text-2); }
+.empty-state-text  { font-size: 13px; color: var(--c-text-3); }

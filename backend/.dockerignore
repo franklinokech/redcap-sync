@@ -1,0 +1,22 @@
+# Python environment
+.venv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Local DB
+db.sqlite3
+
+# Env files / secrets
+.env
+
+# Logs / test caches
+*.log
+.pytest_cache/
+.coverage
+
+# IDEs
+.vscode/
+.idea/
