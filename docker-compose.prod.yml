@@ -98,7 +98,7 @@ services:
     depends_on:
       - backend
     volumes:
-      - staticfiles_volume:/usr/share/nginx/html/static
+      - staticfiles_volume:/app/staticfiles
 
 volumes:
   postgres_data:
