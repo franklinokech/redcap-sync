@@ -98,7 +98,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.local
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT}:5173"
