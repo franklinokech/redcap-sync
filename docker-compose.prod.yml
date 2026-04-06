@@ -30,8 +30,6 @@ services:
   r-service:
     image: franklinokech/redcap-sync-r-service:${APP_VERSION:-latest}
     restart: always
-    ports:
-      - "${R_SERVICE_PORT:-8000}:8000"
     environment:
       PORT: 8000
       HOST: 0.0.0.0
@@ -45,8 +43,6 @@ services:
   backend:
     image: franklinokech/redcap-sync-backend:${APP_VERSION:-latest}
     restart: always
-    ports:
-      - "${DJANGO_PORT:-8001}:8001"
     env_file:
       - .env
     depends_on:
