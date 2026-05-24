@@ -6,6 +6,7 @@ import time
 from typing import Any, Optional
 
 import httpx
+from decouple import config
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +63,14 @@ class RServiceClient:
 
     def __init__(
         self,
-        base_url: str   = "http://localhost:8000",
+        base_url: str | None = None,
         api_key:  str   = "",
         timeout:  float = 300.0,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        self._base_url = (
+                base_url
+                or config("R_SYNC_SERVICE_URL", default="http://localhost:8000")
+        ).rstrip("/")
         self._timeout  = timeout
         self._headers: dict[str, str] = {"Content-Type": "application/json"}
         if api_key:
