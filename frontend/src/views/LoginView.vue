@@ -1,139 +1,122 @@
 <template>
-  <div class="login-page">
-    <div class="login-card fade-in">
-      <div class="login-header">
-        <div class="login-logo">⬡</div>
-        <h1 class="login-title">REDCap<span>Sync</span></h1>
-        <p class="login-sub">Multi-site registry synchronisation</p>
-      </div>
+  <div class="min-h-screen flex items-center justify-center bg-surface-muted">
+    <div class="w-full max-w-sm">
 
-      <form class="login-form" @submit.prevent="handleLogin">
-        <div class="form-group">
-          <label class="form-label">Username</label>
-          <input
-            v-model="form.username"
-            class="form-input"
-            type="text"
-            placeholder="your username"
-            autocomplete="username"
-            required
-          />
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+
+        <div class="mb-8 text-center">
+          <span class="text-2xl font-bold text-brand-700">REDCap Sync</span>
+          <p class="mt-1 text-sm text-gray-500">Sign in to your account</p>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input
-            v-model="form.password"
-            class="form-input"
-            type="password"
-            placeholder="••••••••"
-            autocomplete="current-password"
-            required
-          />
-        </div>
-
-        <div v-if="error" class="login-error">
+        <div
+            v-if="error"
+            class="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm"
+        >
           {{ error }}
         </div>
 
-        <button type="submit" class="btn btn-primary btn-lg login-btn" :disabled="loading">
-          <span v-if="loading">Signing in…</span>
-          <span v-else>Sign in →</span>
-        </button>
-      </form>
-    </div>
+        <form @submit.prevent="submit" class="space-y-4" novalidate>
 
-    <!-- Background grid decoration -->
-    <div class="login-bg-grid" aria-hidden="true"></div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Username
+            </label>
+            <input
+                v-model="form.username"
+                type="text"
+                autocomplete="username"
+                required
+                :disabled="loading"
+                class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+                     disabled:bg-gray-50 disabled:text-gray-400"
+                placeholder="username"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
+            <input
+                v-model="form.password"
+                type="password"
+                autocomplete="current-password"
+                required
+                :disabled="loading"
+                class="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+                     disabled:bg-gray-50 disabled:text-gray-400"
+                placeholder="••••••••"
+            />
+          </div>
+
+          <button
+              type="submit"
+              :disabled="loading || !form.username || !form.password"
+              class="w-full py-2 px-4 rounded-lg bg-brand-600 hover:bg-brand-700
+                   text-white text-sm font-medium transition-colors
+                   disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span v-if="loading" class="flex items-center justify-center gap-2">
+              <svg
+                  class="animate-spin h-4 w-4 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+              >
+                <circle
+                    class="opacity-25"
+                    cx="12" cy="12" r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                />
+                <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+              Signing in…
+            </span>
+            <span v-else>Sign in</span>
+          </button>
+
+        </form>
+      </div>
+
+      <p class="mt-4 text-center text-xs text-gray-400">REDCap Sync Manager</p>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-const auth    = useAuthStore()
-const router  = useRouter()
+const auth   = useAuthStore()
+const router = useRouter()
+
+const form    = reactive({ username: '', password: '' })
 const loading = ref(false)
 const error   = ref('')
 
-const form = ref({ username: '', password: '' })
-
-async function handleLogin() {
-  loading.value = true
+async function submit() {
   error.value   = ''
+  loading.value = true
   try {
-    await auth.login(form.value.username, form.value.password)
-    router.push('/')
+    await auth.login(form.username, form.password)
+    router.push({ name: 'dashboard' })
   } catch (e) {
-    error.value = e.response?.data?.detail || 'Invalid username or password.'
+    // SimpleJWT returns { detail: "..." } on 401
+    error.value =
+        e.response?.data?.detail ??
+        e.response?.data?.non_field_errors?.[0] ??
+        'Login failed. Check your credentials.'
   } finally {
     loading.value = false
   }
 }
 </script>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--c-bg);
-  position: relative;
-  overflow: hidden;
-}
-
-.login-bg-grid {
-  position: absolute; inset: 0; pointer-events: none;
-  background-image:
-    linear-gradient(var(--c-border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--c-border) 1px, transparent 1px);
-  background-size: 40px 40px;
-  opacity: 0.3;
-  mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, black, transparent);
-}
-
-.login-card {
-  position: relative; z-index: 1;
-  width: 100%; max-width: 380px;
-  background: var(--c-bg-2);
-  border: 1px solid var(--c-border);
-  border-radius: 16px;
-  padding: 36px;
-  box-shadow: var(--shadow-lg);
-}
-
-.login-header { text-align: center; margin-bottom: 28px; }
-
-.login-logo {
-  font-size: 36px; color: var(--c-teal);
-  display: block; margin-bottom: 12px;
-}
-
-.login-title {
-  font-size: 22px; font-weight: 600;
-  letter-spacing: -0.03em; color: var(--c-text);
-  margin-bottom: 6px;
-}
-.login-title span { color: var(--c-teal); }
-
-.login-sub {
-  font-size: 12px; color: var(--c-text-3);
-  letter-spacing: 0.02em;
-}
-
-.login-form { display: flex; flex-direction: column; gap: 16px; }
-
-.login-error {
-  background: var(--c-danger-bg);
-  border: 1px solid rgba(248,113,113,0.2);
-  border-radius: var(--r-md);
-  padding: 10px 12px;
-  color: var(--c-danger);
-  font-size: 12px;
-}
-
-.login-btn { width: 100%; justify-content: center; margin-top: 4px; }
-</style>

@@ -1,4 +1,6 @@
 # apps/projects/models.py
+from __future__ import annotations
+
 from django.db import models
 from django.conf import settings
 from cryptography.fernet import Fernet, InvalidToken
@@ -26,9 +28,12 @@ def _fernet():
 
 def encrypt_token(raw_token: str) -> str:
     """Encrypt a plaintext REDCap token and return the ciphertext string."""
-    if len(raw_token.strip()) != 32:
+    cleaned = raw_token.strip()
+    if len(cleaned) != 32:
         raise ValueError("REDCap API tokens must be exactly 32 characters.")
-    return _fernet().encrypt(raw_token.encode()).decode()
+    if not cleaned.isalnum():
+        raise ValueError("REDCap API tokens must be alphanumeric (hex string).")
+    return _fernet().encrypt(cleaned.encode()).decode()
 
 
 def decrypt_token(encrypted_token: str) -> str:
@@ -41,43 +46,33 @@ def decrypt_token(encrypted_token: str) -> str:
         )
 
 
-# ── Site ─────────────────────────────────────────────────────────────────────
+# ── Site ──────────────────────────────────────────────────────────────────────
 
 class Site(models.Model):
     """
     A physical or organisational site that hosts one or more REDCap projects.
-
-    Examples:
-      - "Nairobi County Hospital"
-      - "Kisumu Research Centre"
-      - "Mombasa Field Office"
-
-    A site is the top-level grouping. Users are assigned to sites; projects
-    belong to sites. One site can have many projects.
     """
 
     class Status(models.TextChoices):
         ACTIVE   = "active",   "Active"
         INACTIVE = "inactive", "Inactive"
 
-    name        = models.CharField(max_length=255, unique=True, help_text="Full name of the site")
+    name        = models.CharField(max_length=255, unique=True)
     code        = models.CharField(
         max_length=20,
         unique=True,
         help_text="Short identifier used in logs and displays, e.g. NBI-01",
     )
     description = models.TextField(blank=True)
-    location    = models.CharField(max_length=255, blank=True, help_text="City, county, or region")
+    location    = models.CharField(max_length=255, blank=True)
     status      = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 
-    # Users assigned to this site (non-admin users see only their site's projects)
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         blank=True,
         related_name="sites",
         help_text="Users who can view and manage this site's projects",
     )
-
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -107,10 +102,8 @@ class SiteProject(models.Model):
     """
     A single REDCap project hosted at a site.
 
-    One site can have many projects (enrollment, follow-up, lab results, etc.).
-    Each project has its own API token stored separately in APIToken.
-
-    The sync engine pulls from this project and pushes to the CentralRegistry.
+    The sync engine pulls records from this project's REDCap instance
+    (authenticated via APIToken) and pushes them to the linked CentralRegistry.
     """
 
     class Status(models.TextChoices):
@@ -122,41 +115,53 @@ class SiteProject(models.Model):
         Site,
         on_delete=models.CASCADE,
         related_name="projects",
-        help_text="The site this project belongs to",
     )
-    name        = models.CharField(
-        max_length=255,
-        help_text="Descriptive name, e.g. 'Nairobi — Enrollment Form'",
-    )
+    name        = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     redcap_url  = models.URLField(
         max_length=500,
-        help_text="Full REDCap API URL for this project, e.g. https://redcap.site.ac.ke/api/",
+        help_text="Full REDCap API URL, e.g. https://redcap.site.ac.ke/api/",
     )
-    # Populated automatically when the user validates the token via /project-info
     project_id  = models.PositiveIntegerField(
         null=True,
         blank=True,
         help_text="REDCap internal project ID — fetched automatically on token validation",
     )
-    status      = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    status      = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
 
-    # Optional field/form scoping (blank = sync everything)
     sync_forms  = models.TextField(
         blank=True,
-        help_text="Comma-separated REDCap form names to include in sync. Leave blank for all forms.",
+        help_text="JSON array of REDCap form names to sync. Leave blank for all.",
     )
     sync_fields = models.TextField(
         blank=True,
-        help_text="Comma-separated field names to include in sync. Leave blank for all fields.",
+        help_text="JSON array of field names to sync. Leave blank for all.",
     )
-
-    # Record ID remapping: some sites prefix record IDs to avoid collisions in the registry
     record_id_prefix = models.CharField(
         max_length=20,
         blank=True,
-        help_text="Optional prefix added to record IDs before pushing to registry, e.g. 'NBI-'",
+        help_text="Prefix added to record IDs before pushing, e.g. 'NBI-'",
     )
+
+    # ── Central Registry link ─────────────────────────────────────────────────
+    central_registry = models.ForeignKey(
+        "registry.CentralRegistry",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="linked_site_projects",
+        help_text="The central registry this project syncs into",
+    )
+    central_project_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="REDCap project ID on the central registry — verified before syncing",
+    )
+    # ─────────────────────────────────────────────────────────────────────────
 
     created_by  = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -173,34 +178,38 @@ class SiteProject(models.Model):
         ordering            = ["site__name", "name"]
         verbose_name        = "Site Project"
         verbose_name_plural = "Site Projects"
-        # Prevent duplicate project names within the same site
         unique_together     = [("site", "name")]
 
     def __str__(self):
         return f"{self.site.code} / {self.name}"
 
-    def has_token(self):
+    # ── Token helpers ─────────────────────────────────────────────────────────
+
+    @property
+    def has_token(self) -> bool:
         """Return True if an active API token exists for this project."""
-        return self.tokens.filter(is_active=True).exists()
+        return self.api_tokens.filter(is_active=True).exists()
 
     def get_active_token(self):
         """Return the active APIToken instance, or None."""
-        return self.tokens.filter(is_active=True).first()
+        return self.api_tokens.filter(is_active=True).first()
 
-    def get_active_token_plaintext(self):
-        """Decrypt and return the active token value, or raise if none."""
+    def get_active_token_plaintext(self) -> str | None:
+        """Decrypt and return the active token value, or None if not set."""
         token_obj = self.get_active_token()
         if not token_obj:
-            raise ValueError(f"No active API token configured for project '{self.name}'.")
-        return token_obj.get_token()
+            return None
+        return token_obj.get_plaintext()
 
-    def get_sync_forms_list(self):
+    # ── Sync filter helpers ───────────────────────────────────────────────────
+
+    def get_sync_forms_list(self) -> list[str] | None:
         """Return sync_forms as a list, or None (meaning all forms)."""
         if self.sync_forms.strip():
             return [f.strip() for f in self.sync_forms.split(",") if f.strip()]
         return None
 
-    def get_sync_fields_list(self):
+    def get_sync_fields_list(self) -> list[str] | None:
         """Return sync_fields as a list, or None (meaning all fields)."""
         if self.sync_fields.strip():
             return [f.strip() for f in self.sync_fields.split(",") if f.strip()]
@@ -211,73 +220,67 @@ class SiteProject(models.Model):
 
 class APIToken(models.Model):
     """
-    Encrypted REDCap API token for a SiteProject.
+    Stores an encrypted REDCap API token for a SiteProject.
 
-    A project can have multiple token records (history), but only one
-    is_active=True at a time. Tokens are encrypted at rest using Fernet
-    symmetric encryption — the plaintext is never stored.
-
-    Token rotation: deactivate the old token, create a new one.
+    Only one token per project can be active at a time.
+    Old tokens are deactivated (not deleted) to preserve audit history.
     """
 
-    project         = models.ForeignKey(
+    project    = models.ForeignKey(
         SiteProject,
         on_delete=models.CASCADE,
-        related_name="tokens",
-        help_text="The project this token authenticates against",
+        related_name="api_tokens",
     )
-    label           = models.CharField(
+    token      = models.TextField(blank=True,default="", help_text="Fernet-encrypted REDCap API token")
+    label      = models.CharField(
         max_length=100,
         blank=True,
-        help_text="Optional label, e.g. 'Production token — added Jan 2025'",
+        help_text="Optional note, e.g. 'Rotated Jan 2025'",
     )
-    encrypted_token = models.TextField(help_text="Fernet-encrypted REDCap API token — never stored in plaintext")
-    is_active       = models.BooleanField(
-        default=True,
-        help_text="Only one token per project should be active at a time",
-    )
-
+    is_active  = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
-        blank=True,
         related_name="created_tokens",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table            = "projects_api_token"
-        ordering            = ["-created_at"]
-        verbose_name        = "API Token"
-        verbose_name_plural = "API Tokens"
+        db_table = "projects_api_token"
+        ordering = ["-created_at"]
 
     def __str__(self):
         status = "active" if self.is_active else "inactive"
-        return f"Token [{status}] — {self.project}"
+        return f"Token for {self.project} ({status})"
 
-    def set_token(self, raw_token: str):
-        """Encrypt and store a plaintext REDCap token."""
-        self.encrypted_token = encrypt_token(raw_token)
+    # ── Encryption helpers ────────────────────────────────────────────────────
 
-    def get_token(self) -> str:
-        """Decrypt and return the plaintext token."""
-        return decrypt_token(self.encrypted_token)
+    def set_token(self, plaintext: str) -> None:
+        """Encrypt and store a plaintext token."""
+        self.token = encrypt_token(plaintext)
+
+    def get_plaintext(self) -> str:
+        """Decrypt and return the plaintext token. Raises ValueError on bad key."""
+        return decrypt_token(self.token)
 
     def token_preview(self) -> str:
-        """First 4 chars + masked remainder — safe for display."""
+        """Return first-4 + mask + last-4, e.g. 'A1B2****F7G8'."""
         try:
-            plain = self.get_token()
-            return plain[:4] + "*" * (len(plain) - 4)
+            plain = self.get_plaintext()
+            if len(plain) >= 8:
+                return f"{plain[:4]}****{plain[-4:]}"
+            return "????????"
         except Exception:
-            return "****"
+            return "????????"
+
+    # ── Save hook — enforce one active token per project ──────────────────────
 
     def save(self, *args, **kwargs):
-        # When activating a token, deactivate all others for the same project
-        if self.is_active and self.pk:
-            APIToken.objects.filter(
-                project=self.project,
-                is_active=True,
-            ).exclude(pk=self.pk).update(is_active=False)
+        if self.is_active:
+            qs = APIToken.objects.filter(project=self.project, is_active=True)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            qs.update(is_active=False)
         super().save(*args, **kwargs)

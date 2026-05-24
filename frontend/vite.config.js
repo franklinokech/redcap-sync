@@ -1,30 +1,26 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+export default defineConfig({
+  plugins: [vue()],
 
-  // Local dev: reads from frontend/.env.local → http://localhost:8001
-  // Docker:    reads from root .env           → http://backend:8001
-  const apiTarget = env.VITE_API_URL || 'http://localhost:8001'
-
-  return {
-    plugins: [vue()],
-    resolve: {
-      alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url))
-      }
+  resolve: {
+    alias: {
+      // @ → src/  so you write @/components/... instead of ../../components/...
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
-    server: {
-      port: 5173,
-      host: '0.0.0.0',   // needed for Docker port exposure
-      proxy: {
-        '/api': {
-          target: apiTarget,
-          changeOrigin: true,
-        }
-      }
-    }
-  }
+  },
+
+  server: {
+    port: 5173,
+    proxy: {
+      // Any request to /api/... is forwarded to Django
+      '/api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        // No rewrite — Django already has /api/ prefix
+      },
+    },
+  },
 })
