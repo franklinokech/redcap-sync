@@ -1,234 +1,278 @@
-# plumber.R
-# REDCap Sync Service — plumber REST API
-# Exposes: /health, /project-info, /preview, /sync
-#
-# Start with: Rscript run.R
-# Or:         plumber::plumb("plumber.R")$run(host="0.0.0.0", port=8000)
+# r-sync-service/plumber.R
+# ---------------------------------------------------------------------------
+# Plumber API — exposes sync_logic.R over HTTP.
+# Endpoints accept parameters via query string OR JSON body (with aliases).
+# ---------------------------------------------------------------------------
 
 library(plumber)
 library(jsonlite)
-library(logger)
-library(here)
 
+source("sync_logic.R")   # brings in %||%, validate_token, preview_records, sync_records
 
-
-
-source(here::here("sync_logic.R"))
-
-# ── CORS & global filters ─────────────────────────────────────────────────────
-
-#* @filter cors
-function(req, res) {
-  res$setHeader("Access-Control-Allow-Origin",  "*")
-  res$setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-  res$setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key")
-
-  if (req$REQUEST_METHOD == "OPTIONS") {
-    res$status <- 200
-    return(list())
-  }
-  plumber::forward()
+# ---------------------------------------------------------------------------
+# auth_check: honour R_SYNC_SERVICE_API_KEY env var if set
+# ---------------------------------------------------------------------------
+auth_check <- function(req) {
+  expected <- Sys.getenv("R_SYNC_SERVICE_API_KEY", unset = "")
+  if (!nzchar(expected)) return(invisible(TRUE))
+  provided <- req$HTTP_X_API_KEY %||% ""
+  if (!identical(provided, expected)) stop("Unauthorized: invalid or missing X-Api-Key header")
+  invisible(TRUE)
 }
 
-#* @filter logger
-function(req) {
-  log_info("{req$REQUEST_METHOD} {req$PATH_INFO} — from {req$REMOTE_ADDR}")
-  plumber::forward()
+# ---------------------------------------------------------------------------
+# safe_handler: wraps every endpoint body; maps errors → HTTP status codes
+# ---------------------------------------------------------------------------
+safe_handler <- function(expr_fn, res) {
+  tryCatch(expr_fn(), error = function(e) {
+    msg <- conditionMessage(e)
+    res$status <- if (grepl("^Unauthorized", msg)) 401L else 500L
+    list(success = FALSE, message = msg)
+  })
 }
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# parse_body: decode JSON body once per request (plumber only injects
+# declared @param names; everything else lives in req$postBody)
+# ---------------------------------------------------------------------------
+parse_body <- function(req) {
+  tryCatch(
+    jsonlite::fromJSON(req$postBody %||% "{}", simplifyVector = FALSE),
+    error = function(e) list()
+  )
+}
 
-#* Service health check
+# Flatten a JSON array or plain string → character vector (or NULL if empty)
+normalise_vec <- function(x) {
+  if (is.null(x)) return(NULL)
+  x <- trimws(as.character(unlist(x, use.names = FALSE)))
+  x <- x[nzchar(x)]
+  if (length(x) == 0L) NULL else x
+}
+
+# ---------------------------------------------------------------------------
+# GET /health
+# ---------------------------------------------------------------------------
+
 #* @get /health
-#* @tag utility
-#* @response 200 Service status and version info
-function() {
-  list(
-    status    = "ok",
-    service   = "redcap-sync-r-service",
-    version   = "1.0.0",
-    r_version = as.character(getRversion()),
-    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
-  )
+#* @serializer unboxedJSON
+function(res) {
+  res$status <- 200L
+  list(status = "ok", service = "r-sync-service")
 }
 
-# ── Project info ──────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# POST /project-info   (alias: POST /validate-token)
+# ---------------------------------------------------------------------------
 
-#* Retrieve REDCap project metadata (validates token + URL)
 #* @post /project-info
-#* @tag projects
-#* @param token:string REDCap API token (32 chars)
-#* @param redcap_url:string Full URL to REDCap API endpoint
-#* @response 200 Project metadata
-#* @response 400 Validation error
-#* @response 500 REDCap API error
+#* @serializer unboxedJSON
+#* @param token      REDCap API token
+#* @param redcap_url Base URL of the REDCap instance
 function(req, res, token = "", redcap_url = "") {
+  safe_handler(res = res, expr_fn = function() {
+    auth_check(req)
+    body <- parse_body(req)
 
-  # Support JSON body
-  body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) list())
-  if (nchar(token) == 0 && !is.null(body$token))       token      <- body$token
-  if (nchar(redcap_url) == 0 && !is.null(body$redcap_url)) redcap_url <- body$redcap_url
+    if (!nzchar(trimws(token)))      token      <- body[["token"]]      %||% ""
+    if (!nzchar(trimws(redcap_url))) redcap_url <- body[["redcap_url"]] %||%
+                                                   body[["url"]]        %||% ""
 
-  result <- get_project_info(token = token, redcap_url = redcap_url)
+    if (!nzchar(trimws(token))) {
+      res$status <- 400L; return(list(success = FALSE, message = "token is required"))
+    }
+    if (!nzchar(trimws(redcap_url))) {
+      res$status <- 400L; return(list(success = FALSE, message = "redcap_url is required"))
+    }
 
-  if (!result$success) {
-    res$status <- 400
-    return(list(success = FALSE, message = result$message))
-  }
-
-  list(
-    success = TRUE,
-    message = result$message,
-    info    = result$info
-  )
+    result <- validate_token(token = token, redcap_url = redcap_url)
+    res$status <- if (isTRUE(result$success)) 200L else 400L
+    result
+  })
 }
 
-# ── Preview (pull only, no write) ─────────────────────────────────────────────
+#* @post /validate-token
+#* @serializer unboxedJSON
+#* @param token      REDCap API token
+#* @param redcap_url Base URL of the REDCap instance
+function(req, res, token = "", redcap_url = "") {
+  safe_handler(res = res, expr_fn = function() {
+    auth_check(req)
+    body <- parse_body(req)
 
-#* Preview records that would be synced — no data is written
+    if (!nzchar(trimws(token)))      token      <- body[["token"]]      %||% ""
+    if (!nzchar(trimws(redcap_url))) redcap_url <- body[["redcap_url"]] %||%
+                                                   body[["url"]]        %||% ""
+
+    if (!nzchar(trimws(token))) {
+      res$status <- 400L; return(list(success = FALSE, message = "token is required"))
+    }
+    if (!nzchar(trimws(redcap_url))) {
+      res$status <- 400L; return(list(success = FALSE, message = "redcap_url is required"))
+    }
+
+    result <- validate_token(token = token, redcap_url = redcap_url)
+    res$status <- if (isTRUE(result$success)) 200L else 400L
+    result
+  })
+}
+
+# ---------------------------------------------------------------------------
+# POST /preview
+# ---------------------------------------------------------------------------
+
 #* @post /preview
-#* @tag sync
-#* @param token:string Source REDCap API token
-#* @param redcap_url:string Source REDCap API URL
-#* @param date_from:string [optional] Start date YYYY-MM-DD
-#* @param date_to:string [optional] End date YYYY-MM-DD
-#* @param full_sync:logical [optional] Ignore dates and pull all records
-#* @param fields:string [optional] Comma-separated list of fields
-#* @response 200 Preview data and record count
-#* @response 400 Validation or API error
+#* @serializer unboxedJSON
+#* @param token      REDCap API token
+#* @param redcap_url Base URL of the REDCap instance
+#* @param date_from  Optional start date YYYY-MM-DD
+#* @param date_to    Optional end date YYYY-MM-DD
+#* @param forms      Optional form filter (string or JSON array)
+#* @param fields     Optional field filter (string or JSON array)
 function(req, res,
          token      = "",
          redcap_url = "",
          date_from  = NULL,
          date_to    = NULL,
-         full_sync  = FALSE,
+         forms      = NULL,
          fields     = NULL) {
 
-  body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) list())
-  if (nchar(token) == 0      && !is.null(body$token))      token      <- body$token
-  if (nchar(redcap_url) == 0 && !is.null(body$redcap_url)) redcap_url <- body$redcap_url
-  if (is.null(date_from)     && !is.null(body$date_from))  date_from  <- body$date_from
-  if (is.null(date_to)       && !is.null(body$date_to))    date_to    <- body$date_to
-  if (isFALSE(full_sync)     && !is.null(body$full_sync))  full_sync  <- as.logical(body$full_sync)
-  if (is.null(fields)        && !is.null(body$fields))     fields     <- body$fields
+  safe_handler(res = res, expr_fn = function() {
+    auth_check(req)
+    body <- parse_body(req)
 
-  # Parse comma-separated fields string
-  if (!is.null(fields) && is.character(fields) && grepl(",", fields)) {
-    fields <- trimws(strsplit(fields, ",")[[1]])
-  }
+    if (!nzchar(trimws(token)))      token      <- body[["token"]]      %||% ""
+    if (!nzchar(trimws(redcap_url))) redcap_url <- body[["redcap_url"]] %||%
+                                                   body[["url"]]        %||% ""
+    if (is.null(date_from)) date_from <- body[["date_from"]] %||% NULL
+    if (is.null(date_to))   date_to   <- body[["date_to"]]   %||% NULL
+    if (is.null(forms))     forms     <- body[["forms"]]
+    if (is.null(fields))    fields    <- body[["fields"]]
 
-  result <- preview_records(
-    source_token = token,
-    source_url   = redcap_url,
-    date_from    = date_from,
-    date_to      = date_to,
-    full_sync    = as.logical(full_sync),
-    fields       = fields
-  )
+    if (!nzchar(trimws(token))) {
+      res$status <- 400L; return(list(success = FALSE, message = "token is required"))
+    }
+    if (!nzchar(trimws(redcap_url))) {
+      res$status <- 400L; return(list(success = FALSE, message = "redcap_url is required"))
+    }
 
-  if (!result$success) {
-    res$status <- 400
-    return(list(success = FALSE, message = result$message))
-  }
+    result <- preview_records(
+      token      = token,
+      redcap_url = redcap_url,
+      date_from  = date_from,
+      date_to    = date_to,
+      forms      = normalise_vec(forms),
+      fields     = normalise_vec(fields)
+    )
 
-  list(
-    success       = TRUE,
-    records_count = result$records_count,
-    columns       = result$columns,
-    preview       = result$preview,
-    message       = result$message
-  )
+    res$status <- if (isTRUE(result$success)) 200L else 400L
+    result
+  })
 }
 
-# ── Sync (pull + push) ────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# POST /sync
+#
+# Reads records from a site REDCap project and writes them to the central
+# registry.  Accepts parameters via query string or JSON body.
+#
+# Aliases accepted in JSON body:
+#   token            → source_token
+#   redcap_url       → source_url
+#   target_token     → registry_token
+#   target_redcap_url→ registry_url
+#
+# Response keys (must match core/r_client.py _require_keys):
+#   records_pulled, records_pushed, records_skipped
+# ---------------------------------------------------------------------------
 
-#* Sync records from a source REDCap project to the central registry
 #* @post /sync
-#* @tag sync
-#* @param source_token:string     Source site REDCap API token
-#* @param source_url:string       Source site REDCap API URL
-#* @param registry_token:string   Central registry REDCap API token
-#* @param registry_url:string     Central registry REDCap API URL
-#* @param date_from:string        [optional] Start date YYYY-MM-DD (ignored if full_sync=TRUE)
-#* @param date_to:string          [optional] End date YYYY-MM-DD (ignored if full_sync=TRUE)
-#* @param full_sync:logical       [optional] Pull all records (default FALSE)
-#* @param fields:string           [optional] Comma-separated field names to include
-#* @param forms:string            [optional] Comma-separated form names to include
-#* @param overwrite_with_blanks:logical [optional] Allow blank values to overwrite (default FALSE)
-#* @response 200 Sync result with counts and duration
-#* @response 400 Validation or sync error
-#* @response 500 Unexpected server error
+#* @serializer unboxedJSON
+#* @param token               Source REDCap API token
+#* @param redcap_url          Source REDCap URL
+#* @param target_token        Target (registry) REDCap API token
+#* @param target_redcap_url   Target (registry) REDCap URL
+#* @param date_from           Optional start date YYYY-MM-DD
+#* @param date_to             Optional end date YYYY-MM-DD
+#* @param forms               Optional form filter (string or JSON array)
+#* @param fields              Optional field filter (string or JSON array)
+#* @param record_id_prefix    Prefix applied to record IDs before writing
+#* @param overwrite_with_blanks Overwrite existing fields with blank values
 function(req, res,
-         source_token          = "",
-         source_url            = "",
-         registry_token        = "",
-         registry_url          = "",
+         token                 = "",
+         redcap_url            = "",
+         target_token          = "",
+         target_redcap_url     = "",
          date_from             = NULL,
          date_to               = NULL,
-         full_sync             = FALSE,
-         fields                = NULL,
          forms                 = NULL,
-         overwrite_with_blanks = FALSE,
-         record_id_prefix      = NULL) {
+         fields                = NULL,
+         record_id_prefix      = "",
+         overwrite_with_blanks = FALSE) {
 
-  body <- tryCatch(jsonlite::fromJSON(req$postBody), error = function(e) list())
+  safe_handler(res = res, expr_fn = function() {
+    auth_check(req)
+    body <- parse_body(req)
 
-  # Merge JSON body params (body takes precedence over query params)
-  resolve <- function(arg, key) {
-    val <- body[[key]]
-    if (!is.null(val)) val else arg
-  }
+    # ── Resolve aliases ────────────────────────────────────────────────
+    if (!nzchar(trimws(token))) {
+      token <- body[["token"]] %||% body[["source_token"]] %||% ""
+    }
+    if (!nzchar(trimws(redcap_url))) {
+      redcap_url <- body[["redcap_url"]] %||% body[["source_url"]] %||% ""
+    }
+    if (!nzchar(trimws(target_token))) {
+      target_token <- body[["target_token"]] %||% body[["registry_token"]] %||% ""
+    }
+    if (!nzchar(trimws(target_redcap_url))) {
+      target_redcap_url <- body[["target_redcap_url"]] %||%
+                           body[["registry_url"]] %||% ""
+    }
 
-  source_token          <- resolve(source_token,          "source_token")
-  source_url            <- resolve(source_url,            "source_url")
-  registry_token        <- resolve(registry_token,        "registry_token")
-  registry_url          <- resolve(registry_url,          "registry_url")
-  date_from             <- resolve(date_from,             "date_from")
-  date_to               <- resolve(date_to,               "date_to")
-  full_sync             <- resolve(full_sync,             "full_sync")
-  fields                <- resolve(fields,                "fields")
-  forms                 <- resolve(forms,                 "forms")
-  overwrite_with_blanks <- resolve(overwrite_with_blanks, "overwrite_with_blanks")
-  record_id_prefix      <- resolve(record_id_prefix,      "record_id_prefix")
+    if (is.null(date_from)) date_from <- body[["date_from"]] %||% NULL
+    if (is.null(date_to))   date_to   <- body[["date_to"]]   %||% NULL
+    if (is.null(forms))     forms     <- body[["forms"]]
+    if (is.null(fields))    fields    <- body[["fields"]]
 
-  # Parse comma-separated strings to vectors
-  parse_csv_param <- function(x) {
-    if (!is.null(x) && is.character(x) && grepl(",", x))
-      trimws(strsplit(x, ",")[[1]])
-    else x
-  }
-  fields <- parse_csv_param(fields)
-  forms  <- parse_csv_param(forms)
+    if (!nzchar(trimws(record_id_prefix %||% ""))) {
+      record_id_prefix <- body[["record_id_prefix"]] %||% ""
+    }
 
-  result <- tryCatch({
-    run_sync(
-      source_token          = source_token,
-      source_url            = source_url,
-      registry_token        = registry_token,
-      registry_url          = registry_url,
+    # overwrite_with_blanks may arrive as string "false"/"true" from query params
+    owb <- isTRUE(as.logical(
+      body[["overwrite_with_blanks"]] %||% overwrite_with_blanks
+    ))
+
+    # ── Validate required params ───────────────────────────────────────
+    checks <- list(
+      "token (source REDCap API token)"          = token,
+      "redcap_url (source REDCap URL)"           = redcap_url,
+      "target_token (registry REDCap API token)" = target_token,
+      "target_redcap_url (registry REDCap URL)"  = target_redcap_url
+    )
+    for (label in names(checks)) {
+      if (!nzchar(trimws(checks[[label]]))) {
+        res$status <- 400L
+        return(list(success = FALSE, message = sprintf("%s is required", label),
+                    code = "MISSING_PARAM"))
+      }
+    }
+
+    # ── Execute sync ───────────────────────────────────────────────────
+    result <- sync_records(
+      token                 = token,
+      redcap_url            = redcap_url,
+      target_token          = target_token,
+      target_redcap_url     = target_redcap_url,
       date_from             = date_from,
       date_to               = date_to,
-      full_sync             = as.logical(full_sync),
-      fields                = fields,
-      forms                 = forms,
-      overwrite_with_blanks = as.logical(overwrite_with_blanks),
-      record_id_prefix      = record_id_prefix
+      forms                 = normalise_vec(forms),
+      fields                = normalise_vec(fields),
+      record_id_prefix      = record_id_prefix,
+      overwrite_with_blanks = owb
     )
-  }, error = function(e) {
-    log_error("Unhandled error in /sync: {conditionMessage(e)}")
-    list(
-      success        = FALSE,
-      records_pulled = 0,
-      records_pushed = 0,
-      duration_secs  = 0,
-      message        = paste("Internal server error:", conditionMessage(e)),
-      errors         = list(conditionMessage(e))
-    )
+
+    res$status <- if (isTRUE(result$success)) 200L else 400L
+    result
   })
-
-  if (!result$success) {
-    res$status <- 400
-  }
-
-  result
 }

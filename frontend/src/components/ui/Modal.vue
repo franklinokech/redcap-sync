@@ -1,16 +1,32 @@
 <template>
   <Teleport to="body">
-    <div class="modal-overlay" @click.self="$emit('close')">
-      <div class="modal fade-in">
-        <div class="modal-header">
-          <h3 class="modal-title">{{ title }}</h3>
-          <button class="btn-icon" @click="$emit('close')">✕</button>
+    <!-- Backdrop -->
+    <div
+        class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+        @click="emit('close')"
+    />
+
+    <!-- Panel -->
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+          class="relative bg-white rounded-2xl shadow-2xl w-full flex flex-col max-h-[90vh]"
+          :class="sizeClass"
+          @click.stop
+      >
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
+          <h2 class="text-lg font-semibold text-gray-900">{{ title }}</h2>
+          <button
+              @click="emit('close')"
+              class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
+          >
+            <XMarkIcon class="w-5 h-5" />
+          </button>
         </div>
-        <div class="modal-body">
+
+        <!-- Body -->
+        <div class="overflow-y-auto px-6 py-4 flex-1">
           <slot />
-        </div>
-        <div v-if="$slots.footer" class="modal-footer">
-          <slot name="footer" />
         </div>
       </div>
     </div>
@@ -18,45 +34,19 @@
 </template>
 
 <script setup>
-defineProps({ title: String })
-defineEmits(['close'])
+import { computed } from 'vue'
+import { XMarkIcon } from '@heroicons/vue/24/outline'
+
+const props = defineProps({
+  title: { type: String, default: '' },
+  size:  { type: String, default: 'md' },  // sm | md | lg | xl
+})
+const emit = defineEmits(['close'])
+
+const sizeClass = computed(() => ({
+  sm: 'max-w-sm',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+}[props.size] ?? 'max-w-lg'))
 </script>
-
-<style scoped>
-.modal-overlay {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.7);
-  display: flex; align-items: center; justify-content: center;
-  padding: 20px;
-}
-.modal {
-  background: var(--c-bg-2);
-  border: 1px solid var(--c-border);
-  border-radius: 14px;
-  width: 100%; max-width: 480px;
-  max-height: 90vh;
-  display: flex; flex-direction: column;
-  box-shadow: var(--shadow-lg);
-}
-.modal-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 18px 20px; border-bottom: 1px solid var(--c-border);
-}
-.modal-title { font-size: 15px; font-weight: 600; }
-.btn-icon {
-  background: none; border: none; cursor: pointer;
-  color: var(--c-text-3); font-size: 14px;
-  padding: 4px 6px; border-radius: 4px;
-}
-.btn-icon:hover { color: var(--c-text); background: var(--c-bg-3); }
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  display: flex; flex-direction: column; gap: 14px;
-}
-.modal-footer {
-  padding: 14px 20px; border-top: 1px solid var(--c-border);
-  display: flex; justify-content: flex-end; gap: 8px;
-}
-</style>

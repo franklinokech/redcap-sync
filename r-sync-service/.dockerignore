@@ -11,3 +11,8 @@ logs/
 .RData
 .RDataTmp
 .Ruserdata
+
+renv/library
+.Rhistory
+.env
+logs

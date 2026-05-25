@@ -1,11 +1,5 @@
-# Node dependencies (installed locally, will be installed inside container)
-node_modules/
-
-# Build output
-dist/
-
-# Local environment files (secrets)
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+node_modules
+dist
+.env
+.idea
+.vscode
