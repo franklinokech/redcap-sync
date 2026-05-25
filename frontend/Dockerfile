@@ -1,17 +1,24 @@
-# Stage 1 — build Vue app
 FROM node:24-slim AS builder
-WORKDIR /app
-COPY package*.json .
-RUN npm install
-COPY . .
-ARG VITE_API_URL=/api
-ENV VITE_API_URL=$VITE_API_URL
-RUN npm run build && ls -l dist
 
-# Stage 2 — serve with nginx
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+RUN npm run build
+
+
 FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
+
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-RUN test -f /usr/share/nginx/html/index.html
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+
 EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD wget -qO- http://localhost/health || exit 1
+
 CMD ["nginx", "-g", "daemon off;"]
